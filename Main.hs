@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 
@@ -5,18 +6,17 @@
 module Main where
 
 
-import Prelude hiding (mapM)
 import           Control.Arrow                        hiding (left, right)
-import           Control.Monad hiding (mapM)
+import           Control.Monad                        hiding (mapM)
 import           Data.Bifunctor
 import           Data.Maybe
 import           Data.Traversable
 import qualified Data.Vector                          as V
-import qualified Data.Vector.Generic                  as GV
 import qualified Data.Vector.Mutable                  as MV
 import           Graphics.Gloss
 import           Graphics.Gloss.Interface.IO.Simulate
 import           Options.Applicative
+import           Prelude                              hiding (mapM)
 import           System.Random.MWC
 
 
@@ -69,15 +69,16 @@ instance Functor v => Functor (Vector2D v) where
     fmap f (V2D e d) = V2D e $ fmap f d
 
 (!?) :: Vector2D V.Vector a -> Coord -> Maybe a
-(V2D (w, _) d) !? (x, y) = d V.!? i
-    where
-        i = y * w + x
+v@(V2D _ d) !? p = d V.!? (idx v p)
 
 (!!?) :: Vector2D MV.IOVector a -> Coord -> IO (Maybe a)
-(V2D (w, _) d) !!? (x, y) | i >= MV.length d = return Nothing
-                          | otherwise        = Just <$> MV.read d i
+v@(V2D _ d) !!? p | i >= MV.length d = return Nothing
+                  | otherwise        = Just <$> MV.read d i
     where
-        i = y * w + x
+        i = idx v p
+
+idx :: Vector2D v a -> Coord -> Int
+idx (V2D (w, _) _) (x, y) = y * w + x
 
 fromList :: Coord -> [a] -> Vector2D V.Vector a
 fromList extent = V2D extent . V.fromList
@@ -154,19 +155,26 @@ stepCell :: GenIO
          -> IO ()
 
 stepCell g Params{..} extent v pos f@Fish{} = do
-    mto <-  (`randomElem` g)
-        =<< filter (isEmpty . snd)
-        <$> neighborhoodEntities extent pos v
-    case mto of
-        Just (to, Empty)  ->
-            swapReproduce v pos to f' fishAge fishReproduce $ Fish 0
-        Just (_, Fish{})  -> return ()
-        Just (_, Shark{}) -> return ()
-        Nothing           -> return ()
+    ns <- neighborhoodEntities extent pos v
+    moveEmpty g v pos f' fishReproduce ns fishAge $ Fish 0
     where
         f' = f { fishAge = fishAge f + 1 }
 
-stepCell g ps extent v pos@(x, y) Shark{..} = undefined
+stepCell g Params{..} extent v pos s@Shark{}
+    | sharkEnergy s == 0 = MV.write (v2dData v) (idx v pos) Empty
+    | otherwise          = do
+        ns    <- neighborhoodEntities extent pos v
+        mfish <- randomElem (filter (isFish . snd) ns) g
+        case mfish of
+            Just (to, Fish{}) ->
+                move v pos to
+                     (s' { sharkEnergy = sharkEnergy s + fishBoost })
+                     sharkAge sharkReproduce child
+            _ -> moveEmpty g v pos s' sharkReproduce ns sharkAge child
+        where
+            s' = Shark (sharkAge s + 1) (sharkEnergy s - 1)
+            child = Shark 0 initEnergy
+
 stepCell _ _ _ _ _      Empty = return ()
 
 up, down, left, right :: Coord -> Coord -> Coord
@@ -204,24 +212,61 @@ isShark _       = False
 isEmpty Empty   = True
 isEmpty _       = False
 
-swapReproduce :: Vector2D MV.IOVector Entity
-              -> Coord
-              -> Coord
-              -> Entity
-              -> (Entity -> Chronon)
-              -> Chronon
-              -> Entity
-              -> IO ()
-swapReproduce v from to entity getAge reproduceAge child = undefined
+move :: Vector2D MV.IOVector Entity
+     -> Coord
+     -> Coord
+     -> Entity
+     -> (Entity -> Chronon)
+     -> Chronon
+     -> Entity
+     -> IO ()
+move v2@(V2D _ v) from to entity getAge reproduceAge child = do
+    MV.write v (idx v2 to) entity
+    MV.write v (idx v2 from) $
+        if getAge entity `mod` reproduceAge == 0
+            then child
+            else Empty
+
+moveEmpty :: GenIO
+          -> Vector2D MV.IOVector Entity
+          -> Coord
+          -> Entity
+          -> Chronon
+          -> [(Coord, Entity)]
+          -> (Entity -> Chronon)
+          -> Entity
+          -> IO ()
+moveEmpty g v pos curr repro ns getAge child =
+    randomElem (filter (isEmpty . snd) ns) g
+    >>= \case
+        Just (to, Empty)   ->
+            move v pos to curr getAge repro child
+        Just (_,  Fish{})  -> return ()
+        Just (_,  Shark{}) -> return ()
+        Nothing            -> return ()
 
 shuffle :: V.Vector a -> GenIO -> IO (V.Vector a)
-shuffle = undefined
+shuffle v g = do
+    v' <- V.thaw v
+    mapM_ (randomSwap g v') [V.length v - 1 .. 1]
+    V.freeze v'
 
-randomSwap :: V.Vector a -> Int -> GenIO -> IO a
-randomSwap = undefined
+randomSwap :: GenIO -> MV.IOVector a -> Int -> IO a
+randomSwap _ v 0 = MV.read v 0
+randomSwap _ v 1 = do
+    x <- MV.read v 1
+    MV.write v 0 x
+    return x
+randomSwap g v j = do
+    i <- uniformR (0, j - 1) g
+    x <- MV.read v i
+    MV.write v i =<< MV.read v j
+    MV.write v j x
+    return x
 
 randomElem :: [a] -> GenIO -> IO (Maybe a)
-randomElem = undefined
+randomElem [] _ = return Nothing
+randomElem xs g = Just . (xs !!) <$> uniformR (0, length xs - 1) g
 
 
 main :: IO ()

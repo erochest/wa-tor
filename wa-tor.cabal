@@ -33,6 +33,7 @@ executable wa-tor
                      , optparse-applicative
                      , vector
                      , gloss
+                     , lens
                      , mwc-random
                      , bifunctors
   -- hs-source-dirs:      .
