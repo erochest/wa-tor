@@ -46,6 +46,9 @@ data Params
         , fishReproduce  :: !Chronon
         , initEnergy     :: !Energy
         , fishBoost      :: !Energy
+        , width          :: !Int
+        , height         :: !Int
+        , scaling        :: !Int
         }
 
 data Entity
@@ -272,6 +275,9 @@ randomElem xs g = Just . (xs !!) <$> uniformR (0, length xs - 1) g
 main :: IO ()
 main = do
     ps  <- execParser opts
+    let w       = width ps
+        h       = height ps
+        scaleBy = scaling ps
     withSystemRandom $ asGenIO $ \g -> do
         wtr <- randomWaTor g ps (w, h)
         simulateIO (InWindow "Wa-Tor" (w * scaleBy, h * scaleBy) (0, 0))
@@ -280,10 +286,6 @@ main = do
                    (Simulation ps (fromIntegral w, fromIntegral h) scaleBy wtr)
                    render
                    (step g)
-    where
-        w       = 500
-        h       = 309
-        scaleBy = 2
 
 opts' :: Parser Params
 opts' =   Params
@@ -291,29 +293,42 @@ opts' =   Params
                  (  long "initial-sharks"
                  <> metavar "INITIAL_SHARKS_PROBABILITY" <> value 0.1
                  <> help "The probability that an initial location will\
-                         \ be a shark.")
+                         \ be a shark. Default = 0.1.")
       <*> option auto
                  (  long "initial-fish"
                  <> metavar "INITIAL_FISH_PROBABILITY" <> value 0.2
                  <> help "The probability that an initial location will\
-                         \ be a fish.")
+                         \ be a fish. Default = 0.2.")
       <*> option auto
                  (  long "reproduce-shark"
                  <> metavar "SHARK_REPRODUCE_AGE" <> value 10
-                 <> help "The age at which shark reproduce.")
+                 <> help "The age at which shark reproduce. Default = 10.")
       <*> option auto
                  (  long "reproduce-fish"
                  <> metavar "FISH_REPRODUCE_AGE" <> value 10
-                 <> help "The age at which fish reproduce.")
+                 <> help "The age at which fish reproduce. Default = 10.")
       <*> option auto
                  (  long "initial-shark-energy"
                  <> metavar "INITIAL_SHARK_ENERGY" <> value 15
-                 <> help "The amount of energy sharks are created with.")
+                 <> help "The amount of energy sharks are created with.\
+                         \ Default = 15.")
       <*> option auto
                  (  long "fish-energy"
                  <> metavar "EATEN_FISH_ENERGY" <> value 10
                  <> help "The amount of energy a shark gets from eating\
-                         \ a fish.")
+                         \ a fish. Default = 10.")
+      <*> option auto
+                 (  long "width"
+                 <> metavar "CELLS" <> value 500
+                 <> help "The width of the view area in cells. Default = 500.")
+      <*> option auto
+                 (  long "height"
+                 <> metavar "CELLS" <> value 309
+                 <> help "The height of the view area in cells. Default = 309.")
+      <*> option auto
+                 (  long "scaling"
+                 <> metavar "ZOOM" <> value 2
+                 <> help "The size to zoom the elements to. Default = 2.")
 
 opts :: ParserInfo Params
 opts = info (helper <*> opts')
