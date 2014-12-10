@@ -121,7 +121,7 @@ render (Simulation _ extent scaleBy (WaTor _ wator)) =
     where
         scaleBy' = fromIntegral scaleBy
         indexes' = map floatPair . indexes $ v2dExtent wator
-        slide x  = -1.0 * x
+        slide x  = (-0.5) * scaleBy' * x
 
         render' (_     , Nothing) = Nothing
         render' ((x, y), Just c)  =
