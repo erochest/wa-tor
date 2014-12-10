@@ -72,7 +72,7 @@ instance Functor v => Functor (Vector2D v) where
     fmap f (V2D e d) = V2D e $ fmap f d
 
 (!?) :: Vector2D V.Vector a -> Coord -> Maybe a
-v@(V2D _ d) !? p = d V.!? (idx v p)
+v@(V2D _ d) !? p = d V.!? idx v p
 
 (!!?) :: Vector2D MV.IOVector a -> Coord -> IO (Maybe a)
 v@(V2D _ d) !!? p | i >= MV.length d = return Nothing
@@ -175,7 +175,7 @@ stepCell g Params{..} extent v pos s@Shark{}
                      sharkAge sharkReproduce child
             _ -> moveEmpty g v pos s' sharkReproduce ns sharkAge child
         where
-            s' = Shark (sharkAge s + 1) (sharkEnergy s - 1)
+            s'    = Shark (sharkAge s + 1) (sharkEnergy s - 1)
             child = Shark 0 initEnergy
 
 stepCell _ _ _ _ _      Empty = return ()
