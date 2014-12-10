@@ -17,7 +17,7 @@ specs: build
 	./dist/build/wa-tor-specs/wa-tor-specs
 
 run:
-	${CABAL} run
+	${CABAL} run -- --initial-sharks 0.15 --initial-fish 0.15 --initial-shark-energy 30 --fish-energy 5 --reproduce-shark 30 --reproduce-fish 50 --speed 50
 
 
 # docs:
