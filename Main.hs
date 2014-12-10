@@ -1,20 +1,35 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards   #-}
 
 
 module Main where
 
 
-import           Options.Applicative
+import           Control.Monad
+import           Data.Bifunctor
+import           Data.Maybe
+import qualified Data.Vector                          as V
 import           Graphics.Gloss
 import           Graphics.Gloss.Interface.IO.Simulate
+import           Options.Applicative
+import           System.Random.MWC
 
 
 type Chronon = Int
 type Energy  = Int
+type Coord   = (Int, Int)
+
+data WaTor
+        = WaTor
+        { world :: !(Vector2D Entity)
+        }
 
 data Simulation
         = Simulation
-        { params :: !Params
+        { params  :: !Params
+        , extent  :: !Point
+        , scaleBy :: !Int
+        , wator   :: !WaTor
         }
 
 data Params
@@ -27,9 +42,69 @@ data Params
         , fishBoost      :: !Energy
         }
 
+data Entity
+        = Fish
+        | Shark
+        | Empty
+        deriving (Eq, Show, Enum, Bounded)
+
+data Vector2D a
+        = V2D
+        { v2dExtent :: !Coord
+        , v2dData   :: !(V.Vector a)
+        }
+
+instance Functor Vector2D where
+    fmap f (V2D e d) = V2D e $ fmap f d
+
+(!?) :: Vector2D a -> Coord -> Maybe a
+(V2D (w, _) d) !? (x, y) = d V.!? i
+    where
+        i = y * w + x
+
+fromList :: Coord -> [a] -> Vector2D a
+fromList extent = V2D extent . V.fromList
+
+toList :: Vector2D a -> [a]
+toList = V.toList . v2dData
+
+
+randomWaTor :: GenIO -> Params -> Coord -> IO WaTor
+randomWaTor g p extent@(w, h) =
+    WaTor . V2D extent . V.fromList <$> replicateM (w * h) (randomEntity g p)
+
+randomEntity :: GenIO -> Params -> IO Entity
+randomEntity g Params{..} = randomEntity' <$> uniform g
+    where
+        randomEntity' x | x <= initialFish                   = Fish
+                        | x <= (initialFish + initialSharks) = Shark
+                        | otherwise                          = Empty
 
 render :: Simulation -> IO Picture
-render _ = return Blank
+render (Simulation _ extent scaleBy (WaTor wator)) =
+    return . uncurry translate (bimap slide slide extent)
+           . pictures
+           . mapMaybe render'
+           . zip indexes
+           . toList
+           $ fmap entityColor wator
+    where
+        (w, h)   = v2dExtent wator
+        scaleBy' = fromIntegral scaleBy
+        indexes  = [ (x, y) | y <- [0..h-1], x <- [0..w-1] ]
+        slide x  = -1.0 * x
+
+        render' (_     , Nothing) = Nothing
+        render' ((x, y), Just c)  =
+            Just . color c
+                 . translate (scaleBy' * fromIntegral x)
+                             (scaleBy' * fromIntegral y)
+                 $ circle (scaleBy' / 2.0)
+
+entityColor :: Entity -> Maybe Color
+entityColor Fish  = Just $ dim blue
+entityColor Shark = Just $ dim red
+entityColor Empty = Nothing
 
 step :: ViewPort -> Float -> Simulation -> IO Simulation
 step _ _ = return
@@ -37,16 +112,19 @@ step _ _ = return
 
 main :: IO ()
 main = do
-    ps <- execParser opts
-    simulateIO (InWindow "Wa-Tor" (w, h) (0, 0))
+    ps  <- execParser opts
+    wtr <- withSystemRandom $ asGenIO $ \g ->
+        randomWaTor g ps (w, h)
+    simulateIO (InWindow "Wa-Tor" (w * scaleBy, h * scaleBy) (0, 0))
                black
                10
-               (Simulation ps)
+               (Simulation ps (fromIntegral w, fromIntegral h) scaleBy wtr)
                render
                step
     where
-        w = 500
-        h = 309
+        w       = 500
+        h       = 309
+        scaleBy = 2
 
 opts' :: Parser Params
 opts' =   Params

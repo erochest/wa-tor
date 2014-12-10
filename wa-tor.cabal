@@ -31,6 +31,9 @@ executable wa-tor
                      , wa-tor
                      , text
                      , optparse-applicative
+                     , vector
                      , gloss
+                     , mwc-random
+                     , bifunctors
   -- hs-source-dirs:      .
   default-language:    Haskell2010
