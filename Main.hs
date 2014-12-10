@@ -49,6 +49,7 @@ data Params
         , width          :: !Int
         , height         :: !Int
         , scaling        :: !Int
+        , speed          :: !Int
         }
 
 data Entity
@@ -329,6 +330,10 @@ opts' =   Params
                  (  long "scaling"
                  <> metavar "ZOOM" <> value 2
                  <> help "The size to zoom the elements to. Default = 2.")
+      <*> option auto
+                 (  long "speed"
+                 <> metavar "FRAMES_PER_SECOND" <> value 7
+                 <> help "The frames/second in the simulation. Default = 7.")
 
 opts :: ParserInfo Params
 opts = info (helper <*> opts')
