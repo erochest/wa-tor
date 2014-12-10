@@ -158,23 +158,23 @@ stepCell :: GenIO
          -> Entity
          -> IO ()
 
-stepCell g Params{..} extent v pos f@Fish{} = do
-    ns <- neighborhoodEntities extent pos v
-    moveEmpty g v pos f' fishReproduce ns fishAge $ Fish 0
+stepCell g Params{..} extent v from f@Fish{} = do
+    ns <- neighborhoodEntities extent from v
+    moveEmpty g v from f' fishReproduce ns fishAge $ Fish 0
     where
         f' = f { fishAge = fishAge f + 1 }
 
-stepCell g Params{..} extent v pos s@Shark{}
-    | sharkEnergy s == 0 = MV.write (v2dData v) (idx v pos) Empty
+stepCell g Params{..} extent v from s@Shark{}
+    | sharkEnergy s == 0 = MV.write (v2dData v) (idx v from) Empty
     | otherwise          = do
-        ns    <- neighborhoodEntities extent pos v
+        ns    <- neighborhoodEntities extent from v
         mfish <- randomElem (filter (isFish . snd) ns) g
         case mfish of
             Just (to, Fish{}) ->
-                move v pos to
+                move v from to
                      (s' { sharkEnergy = sharkEnergy s + fishBoost })
                      sharkAge sharkReproduce child
-            _ -> moveEmpty g v pos s' sharkReproduce ns sharkAge child
+            _ -> moveEmpty g v from s' sharkReproduce ns sharkAge child
         where
             s'    = Shark (sharkAge s + 1) (sharkEnergy s - 1)
             child = Shark 0 initEnergy
@@ -227,7 +227,7 @@ move :: Vector2D MV.IOVector Entity
 move v2@(V2D _ v) from to entity getAge reproduceAge child = do
     MV.write v (idx v2 to) entity
     MV.write v (idx v2 from) $
-        if getAge entity `mod` reproduceAge == 0
+        if (getAge entity `mod` reproduceAge) == 0
             then child
             else Empty
 
@@ -240,11 +240,11 @@ moveEmpty :: GenIO
           -> (Entity -> Chronon)
           -> Entity
           -> IO ()
-moveEmpty g v pos curr repro ns getAge child =
+moveEmpty g v from curr repro ns getAge child =
     randomElem (filter (isEmpty . snd) ns) g
     >>= \case
         Just (to, Empty)   ->
-            move v pos to curr getAge repro child
+            move v from to curr getAge repro child
         Just (_,  Fish{})  -> return ()
         Just (_,  Shark{}) -> return ()
         Nothing            -> return ()
