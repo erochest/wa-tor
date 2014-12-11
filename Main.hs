@@ -160,9 +160,22 @@ render (Simulation _ extent scaleBy (WaTor _ wator)) =
                  $ circle (scaleBy' / 2.0)
 
 entityColor :: Entity -> Maybe Color
-entityColor Fish{}  = Just $ dim blue
-entityColor Shark{} = Just $ dim red
-entityColor Empty   = Nothing
+entityColor f@Fish{}  = Just . dimTo (fishAge f) $ blue
+entityColor s@Shark{} = Just . dimTo (sharkEnergy s) $ red
+entityColor   Empty   = Nothing
+
+dimTo :: Int -> Color -> Color
+dimTo e | e >= 100  = id
+        | e >=  90  = dim
+        | e >=  80  = dim . dim
+        | e >=  70  = dim . dim . dim
+        | e >=  60  = dim . dim . dim . dim
+        | e >=  50  = dim . dim . dim . dim . dim
+        | e >=  40  = dim . dim . dim . dim . dim . dim
+        | e >=  30  = dim . dim . dim . dim . dim . dim . dim
+        | e >=  20  = dim . dim . dim . dim . dim . dim . dim . dim
+        | e >=  10  = dim . dim . dim . dim . dim . dim . dim . dim . dim
+        | otherwise = dim . dim . dim . dim . dim . dim . dim . dim . dim . dim
 
 step :: GenIO -> ViewPort -> Float -> Simulation -> IO Simulation
 step g _ _ s@(Simulation ps _ _ wator@(WaTor t (V2D extent w))) = do
