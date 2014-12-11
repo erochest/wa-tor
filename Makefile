@@ -4,6 +4,8 @@ SRC=$(shell find src -name '*.hs')
 CABAL=cabal
 FLAGS=--enable-tests
 
+TS=`timestamp`
+
 all: init test docs package
 
 init:
@@ -17,7 +19,7 @@ specs: build
 	./dist/build/wa-tor-specs/wa-tor-specs
 
 run:
-	${CABAL} run -- --initial-sharks 0.15 --initial-fish 0.15 --initial-shark-energy 50 --fish-energy 25 --reproduce-shark 20 --reproduce-fish 20 --speed 10 --width 100 --height 61 --scaling 4 --count-log wa-tor-counts.tsv > wa-tor.log
+	${CABAL} run -- --initial-sharks 0.15 --initial-fish 0.15 --initial-shark-energy 50 --fish-energy 25 --reproduce-shark 20 --reproduce-fish 20 --speed 10 --width 100 --height 61 --scaling 4 --count-log wa-tor-counts-${TS}.tsv > wa-tor-${TS}.log
 
 
 # docs:
