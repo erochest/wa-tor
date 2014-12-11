@@ -9,7 +9,13 @@ module Main where
 import           Control.Arrow                        hiding (left, right)
 import           Control.Monad                        hiding (mapM)
 import           Data.Bifunctor
+import qualified Data.HashMap.Strict                  as M
 import           Data.Maybe
+import qualified Data.Text                            as T
+import qualified Data.Text.IO                         as TIO
+import qualified Data.Text.Lazy                       as TL
+import           Data.Text.Lazy.Builder
+import           Data.Text.Lazy.Builder.Int
 import           Data.Traversable
 import qualified Data.Vector                          as V
 import qualified Data.Vector.Mutable                  as MV
@@ -50,6 +56,7 @@ data Params
         , height         :: !Int
         , scaling        :: !Int
         , speed          :: !Int
+        , countLog       :: !(Maybe FilePath)
         }
 
 data Entity
@@ -111,6 +118,28 @@ randomEntity g Params{..} = randomEntity' <$> uniform g
                         | x <= (initialFish + initialSharks) = Shark 0 initEnergy
                         | otherwise                          = Empty
 
+logCounts :: WaTor -> FilePath -> IO ()
+logCounts w fp = TIO.appendFile fp
+               . TL.toStrict
+               . toLazyText
+               . cline (time w)
+               . V.foldl' indexCounts M.empty
+               . v2dData
+               $ world w
+    where
+        cline t m =  decimal t <> "\t"
+                  <> decimal (M.lookupDefault 0 "fish"  m) <> "\t"
+                  <> decimal (M.lookupDefault 0 "shark" m) <> "\t"
+                  <> decimal (M.lookupDefault 0 "empty" m) <> "\n"
+
+indexCounts :: M.HashMap T.Text Int -> Entity -> M.HashMap T.Text Int
+indexCounts m e = M.insertWith (+) (entityKey e) 1 m
+
+entityKey :: Entity -> T.Text
+entityKey Fish{}  = "fish"
+entityKey Shark{} = "shark"
+entityKey Empty   = "empty"
+
 render :: Simulation -> IO Picture
 render (Simulation _ extent scaleBy (WaTor _ wator)) =
     return . uncurry translate (slide `both` extent)
@@ -136,7 +165,8 @@ entityColor Shark{} = Just $ dim red
 entityColor Empty   = Nothing
 
 step :: GenIO -> ViewPort -> Float -> Simulation -> IO Simulation
-step g _ _ s@(Simulation ps _ _ (WaTor t (V2D extent w))) = do
+step g _ _ s@(Simulation ps _ _ wator@(WaTor t (V2D extent w))) = do
+    maybe (return ()) (logCounts wator) $ countLog ps
     v' <- V2D extent <$> V.thaw w
 
     ((`shuffle` g) $ V.zip indexes' w)
@@ -165,12 +195,14 @@ stepCell g Params{..} extent v from f@Fish{} = do
         f' = f { fishAge = fishAge f + 1 }
 
 stepCell g Params{..} extent v from s@Shark{}
-    | sharkEnergy s == 0 = MV.write (v2dData v) (idx v from) Empty
+    | sharkEnergy s == 0 = MV.write (v2dData v) (idx v from) Empty >> putStrLn ("DIED: " ++ show s)
     | otherwise          = do
         ns    <- neighborhoodEntities extent from v
         mfish <- randomElem (filter (isFish . snd) ns) g
         case mfish of
-            Just (to, Fish{}) ->
+            Just (to, f@Fish{}) -> do
+                putStrLn ("EATING: " ++ show (s' { sharkEnergy = sharkEnergy s + fishBoost })
+                         ++ " < " ++ show f)
                 move v from to
                      (s' { sharkEnergy = sharkEnergy s + fishBoost })
                      sharkAge sharkReproduce child
@@ -334,6 +366,9 @@ opts' =   Params
                  (  long "speed"
                  <> metavar "FRAMES_PER_SECOND" <> value 7
                  <> help "The frames/second in the simulation. Default = 7.")
+      <*> optional (strOption
+                       (  long "count-log" <> metavar "FILENAME"
+                       <> help "A file name for the counts. This will be TSV."))
 
 opts :: ParserInfo Params
 opts = info (helper <*> opts')

@@ -32,6 +32,7 @@ executable wa-tor
                      , text
                      , optparse-applicative
                      , vector
+                     , unordered-containers
                      , gloss
                      , lens
                      , mwc-random
