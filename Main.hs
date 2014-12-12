@@ -181,9 +181,9 @@ render (Simulation _ extent scaleBy (WaTor _ wator)) =
                  $ circle (scaleBy' / 2.0)
 
 entityColor :: Entity -> Maybe Color
-entityColor   Fish{}  = Just . dim $ blue
-entityColor s@Shark{} = Just . dimTo (sharkEnergy s) $ red
-entityColor   Empty   = Nothing
+entityColor Fish{}  = Just . dim $ blue
+entityColor Shark{} = Just . dim $ red
+entityColor Empty   = Nothing
 
 dimTo :: Int -> Color -> Color
 dimTo e | e >= 100  = id
