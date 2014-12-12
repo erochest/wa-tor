@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE NamedFieldPuns    #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 
@@ -11,11 +12,16 @@ import           Control.Monad                        hiding (mapM)
 import           Data.Bifunctor
 import qualified Data.HashMap.Strict                  as M
 import           Data.Maybe
+import           Data.Monoid
 import qualified Data.Text                            as T
+import           Data.Text.Format                     hiding (left, print,
+                                                       right)
+import qualified Data.Text.Format                     as F
 import qualified Data.Text.IO                         as TIO
 import qualified Data.Text.Lazy                       as TL
 import           Data.Text.Lazy.Builder
 import           Data.Text.Lazy.Builder.Int
+import           Data.Text.Lazy.Builder.RealFloat
 import           Data.Traversable
 import qualified Data.Vector                          as V
 import qualified Data.Vector.Mutable                  as MV
@@ -58,6 +64,19 @@ data Params
         , speed          :: !Int
         , countLog       :: !(Maybe FilePath)
         }
+
+data StepSummary
+        = StepSum
+        { fishBorn      :: !Int
+        , fishEaten     :: !Int
+        , sharksBorn    :: !Int
+        , sharksStarved :: !Int
+        } deriving (Show)
+
+instance Monoid StepSummary where
+    mempty = StepSum 0 0 0 0
+    (StepSum fb1 fe1 sb1 ss1) `mappend` (StepSum fb2 fe2 sb2 ss2) =
+        StepSum (fb1 + fb2) (fe1 + fe2) (sb1 + sb2) (ss1 + ss2)
 
 data Entity
         = Fish
@@ -127,13 +146,18 @@ logCounts w fp = TIO.appendFile fp
                . v2dData
                $ world w
     where
-        cline t m =  decimal t <> "\t"
-                  <> decimal (M.lookupDefault 0 "fish"  m) <> "\t"
-                  <> decimal (M.lookupDefault 0 "shark" m) <> "\t"
-                  <> decimal (M.lookupDefault 0 "empty" m) <> "\n"
+        cline t m = let (Sum fc, Sum fa) = M.lookupDefault (Sum 0, Sum 1) "fish"  m
+                        (Sum sc, Sum se) = M.lookupDefault (Sum 0, Sum 1) "shark" m
+                        (Sum e, _)       = M.lookupDefault (Sum 0, Sum 1) "empty" m
+                    in  decimal t <> "\t"
+                    <> decimal fc <> "\t" <> realFloat (fromIntegral fa / fromIntegral fc) <> "\t"
+                    <> decimal sc <> "\t" <> realFloat (fromIntegral se / fromIntegral sc) <> "\t"
+                    <> decimal e  <> "\n"
 
-indexCounts :: M.HashMap T.Text Int -> Entity -> M.HashMap T.Text Int
-indexCounts m e = M.insertWith (+) (entityKey e) 1 m
+indexCounts :: M.HashMap T.Text (Sum Int, Sum Int) -> Entity -> M.HashMap T.Text (Sum Int, Sum Int)
+indexCounts m Fish{fishAge}      = M.insertWith mappend "fish"  (Sum 1, Sum fishAge)     m
+indexCounts m Shark{sharkEnergy} = M.insertWith mappend "shark" (Sum 1, Sum sharkEnergy) m
+indexCounts m Empty              = M.insertWith mappend "empty" (Sum 1, Sum 0) m
 
 entityKey :: Entity -> T.Text
 entityKey Fish{}  = "fish"
@@ -160,7 +184,7 @@ render (Simulation _ extent scaleBy (WaTor _ wator)) =
                  $ circle (scaleBy' / 2.0)
 
 entityColor :: Entity -> Maybe Color
-entityColor f@Fish{}  = Just . dimTo (fishAge f) $ blue
+entityColor   Fish{}  = Just . dim $ blue
 entityColor s@Shark{} = Just . dimTo (sharkEnergy s) $ red
 entityColor   Empty   = Nothing
 
@@ -183,7 +207,8 @@ step g _ _ s@(Simulation ps _ _ wator@(WaTor t (V2D extent w))) = do
     v' <- V2D extent <$> V.thaw w
 
     ((`shuffle` g) $ V.zip indexes' w)
-        >>= V.mapM_ (uncurry (stepCell g ps extent v'))
+        >>= V.mapM (uncurry (stepCell g ps extent v'))
+        >>= print . V.foldl' mappend mempty
 
     v'' <- V.freeze $ v2dData v'
     return $ s { wator = WaTor { time = t + 1
@@ -199,32 +224,36 @@ stepCell :: GenIO
          -> Vector2D MV.IOVector Entity
          -> Coord
          -> Entity
-         -> IO ()
+         -> IO StepSummary
 
 stepCell g Params{..} extent v from f@Fish{} = do
-    ns <- neighborhoodEntities extent from v
-    moveEmpty g v from f' fishReproduce ns fishAge $ Fish 0
+    current <- v !!? from
+    case current of
+        Just Fish{} -> do
+            ns <- neighborhoodEntities extent from v
+            moveEmpty g v from f' fishReproduce ns fishAge $ Fish 0
+        _ -> return mempty
     where
         f' = f { fishAge = fishAge f + 1 }
 
 stepCell g Params{..} extent v from s@Shark{}
-    | sharkEnergy s == 0 = MV.write (v2dData v) (idx v from) Empty >> putStrLn ("DIED: " ++ show s)
+    | sharkEnergy s == 0 =  MV.write (v2dData v) (idx v from) Empty
+                         >> F.print "DIED: {}\n" (Only (Shown s))
+                         >> return (mempty { sharksStarved = 1 })
     | otherwise          = do
         ns    <- neighborhoodEntities extent from v
         mfish <- randomElem (filter (isFish . snd) ns) g
         case mfish of
             Just (to, f@Fish{}) -> do
-                putStrLn ("EATING: " ++ show (s' { sharkEnergy = sharkEnergy s + fishBoost })
-                         ++ " < " ++ show f)
-                move v from to
-                     (s' { sharkEnergy = sharkEnergy s + fishBoost })
-                     sharkAge sharkReproduce child
+                F.print "EATING: {} => {}\n" (Shown s'', Shown f)
+                move v from to s'' sharkAge sharkReproduce child
             _ -> moveEmpty g v from s' sharkReproduce ns sharkAge child
         where
             s'    = Shark (sharkAge s + 1) (sharkEnergy s - 1)
+            s''   = s' { sharkEnergy = sharkEnergy s + fishBoost }
             child = Shark 0 initEnergy
 
-stepCell _ _ _ _ _      Empty = return ()
+stepCell _ _ _ _ _      Empty = return mempty
 
 up, down, left, right :: Coord -> Coord -> Coord
 
@@ -268,13 +297,34 @@ move :: Vector2D MV.IOVector Entity
      -> (Entity -> Chronon)
      -> Chronon
      -> Entity
-     -> IO ()
+     -> IO StepSummary
 move v2@(V2D _ v) from to entity getAge reproduceAge child = do
-    MV.write v (idx v2 to) entity
-    MV.write v (idx v2 from) $
-        if (getAge entity `mod` reproduceAge) == 0
-            then child
-            else Empty
+    let child' = if (getAge entity `mod` reproduceAge) == 0
+                     then child
+                     else Empty
+        to'   = idx v2 to
+        from' = idx v2 from
+    was <- MV.read v to'
+    MV.write v to' entity
+    MV.write v from' child'
+    F.print "MOVE: {} {} => {} {} ({})\n"
+            (Shown entity, Shown from , Shown was, Shown to , Shown child')
+    {-
+     - case entity of
+     -     Shark{} -> F.print "MOVE: {} {} => {} {} ({})\n"
+     -                        ( Shown entity, Shown from
+     -                        , Shown was, Shown to
+     -                        , Shown child')
+     -     _ -> return ()
+     -}
+    return $ StepSum (if isFish child' && isFish entity then 1 else 0)
+                     (if isFish was then 1 else 0)
+                     (if isShark child' && isShark entity then 1 else 0)
+                     0
+
+update :: Vector2D MV.IOVector Entity -> Coord -> Entity -> IO StepSummary
+update v2@(V2D _ v) coord entity =
+    MV.write v (idx v2 coord) entity >> return mempty
 
 moveEmpty :: GenIO
           -> Vector2D MV.IOVector Entity
@@ -284,15 +334,15 @@ moveEmpty :: GenIO
           -> [(Coord, Entity)]
           -> (Entity -> Chronon)
           -> Entity
-          -> IO ()
+          -> IO StepSummary
 moveEmpty g v from curr repro ns getAge child =
     randomElem (filter (isEmpty . snd) ns) g
     >>= \case
         Just (to, Empty)   ->
             move v from to curr getAge repro child
-        Just (_,  Fish{})  -> return ()
-        Just (_,  Shark{}) -> return ()
-        Nothing            -> return ()
+        Just (_,  Fish{})  -> update v from curr
+        Just (_,  Shark{}) -> update v from curr
+        Nothing            -> update v from curr
 
 shuffle :: V.Vector a -> GenIO -> IO (V.Vector a)
 shuffle v g = do

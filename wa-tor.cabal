@@ -30,6 +30,7 @@ executable wa-tor
   build-depends:       base >=4.7 && <4.8
                      , wa-tor
                      , text
+                     , text-format
                      , optparse-applicative
                      , vector
                      , unordered-containers
