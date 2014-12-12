@@ -8,6 +8,7 @@ module Main where
 
 
 import           Control.Arrow                        hiding (left, right)
+import           Control.Concurrent.STM
 import           Control.Monad                        hiding (mapM)
 import           Data.Bifunctor
 import qualified Data.HashMap.Strict                  as M
@@ -29,14 +30,15 @@ import           Prelude                              hiding (mapM)
 import           System.Random.MWC
 
 
-type Chronon = Int
-type Energy  = Int
-type Coord   = (Int, Int)
+type Chronon   = Int
+type Energy    = Int
+type Coord     = (Int, Int)
+type EntityVar = TVar Entity
 
 data WaTor
         = WaTor
         { time  :: !Chronon
-        , world :: !(Vector2D V.Vector Entity)
+        , world :: !(Vector2D V.Vector EntityVar)
         }
 
 data Simulation
@@ -98,12 +100,6 @@ instance Functor v => Functor (Vector2D v) where
 (!?) :: Vector2D V.Vector a -> Coord -> Maybe a
 v@(V2D _ d) !? p = d V.!? idx v p
 
-(!!?) :: Vector2D MV.IOVector a -> Coord -> IO (Maybe a)
-v@(V2D _ d) !!? p | i >= MV.length d = return Nothing
-                  | otherwise        = Just <$> MV.read d i
-    where
-        i = idx v p
-
 idx :: Vector2D v a -> Coord -> Int
 idx (V2D (w, _) _) (x, y) = y * w + x
 
@@ -112,6 +108,12 @@ fromList extent = V2D extent . V.fromList
 
 toList :: Vector2D V.Vector a -> [a]
 toList = V.toList . v2dData
+
+readCell :: Vector2D V.Vector (TVar a) -> Coord -> STM a
+readCell v@(V2D _ v') i = readTVar $ v' V.! idx v i
+
+writeCell :: Vector2D V.Vector (TVar a) -> Coord -> a -> STM ()
+writeCell v@(V2D _ v') i a = writeTVar (v' V.! idx v i) a
 
 indexes :: Coord -> [Coord]
 indexes (w, h) = [ (x, y) | y <- [0..h-1], x <- [0..w-1] ]
@@ -125,7 +127,8 @@ floatPair = both fromIntegral
 
 randomWaTor :: GenIO -> Params -> Coord -> IO WaTor
 randomWaTor g p extent@(w, h) =
-    WaTor 0 . V2D extent . V.fromList <$> replicateM (w * h) (randomEntity g p)
+        WaTor 0 . V2D extent . V.fromList
+    <$> replicateM (w * h) (newTVarIO =<< randomEntity g p)
 
 randomEntity :: GenIO -> Params -> IO Entity
 randomEntity g Params{..} = randomEntity' <$> uniform g
@@ -135,26 +138,36 @@ randomEntity g Params{..} = randomEntity' <$> uniform g
                         | otherwise                          = Empty
 
 logCounts :: WaTor -> FilePath -> IO ()
-logCounts w fp = TIO.appendFile fp
-               . TL.toStrict
-               . toLazyText
-               . cline (time w)
-               . V.foldl' indexCounts M.empty
-               . v2dData
-               $ world w
+logCounts w fp =   TIO.appendFile fp
+               .   TL.toStrict
+               .   toLazyText
+               .   cline (time w)
+               =<< V.foldM' indexCounts M.empty
+               (   v2dData
+               $   world w
+               )
     where
+
+        per :: Int -> Int -> Double
+        per n d = fromIntegral n / fromIntegral d
+
+        cline :: Int -> M.HashMap T.Text (Sum Int, Sum Int) -> Builder
         cline t m = let (Sum fc, Sum fa) = M.lookupDefault (Sum 0, Sum 1) "fish"  m
                         (Sum sc, Sum se) = M.lookupDefault (Sum 0, Sum 1) "shark" m
                         (Sum e, _)       = M.lookupDefault (Sum 0, Sum 1) "empty" m
                     in  decimal t <> "\t"
-                    <> decimal fc <> "\t" <> realFloat (fromIntegral fa / fromIntegral fc) <> "\t"
-                    <> decimal sc <> "\t" <> realFloat (fromIntegral se / fromIntegral sc) <> "\t"
+                    <> decimal fc <> "\t" <> realFloat (fa `per` fc) <> "\t"
+                    <> decimal sc <> "\t" <> realFloat (se `per` sc) <> "\t"
                     <> decimal e  <> "\n"
 
-indexCounts :: M.HashMap T.Text (Sum Int, Sum Int) -> Entity -> M.HashMap T.Text (Sum Int, Sum Int)
-indexCounts m Fish{fishAge}      = M.insertWith mappend "fish"  (Sum 1, Sum fishAge)     m
-indexCounts m Shark{sharkEnergy} = M.insertWith mappend "shark" (Sum 1, Sum sharkEnergy) m
-indexCounts m Empty              = M.insertWith mappend "empty" (Sum 1, Sum 0) m
+indexCounts :: M.HashMap T.Text (Sum Int, Sum Int) -> EntityVar
+            -> IO (M.HashMap T.Text (Sum Int, Sum Int))
+indexCounts m = fmap ic . readTVarIO
+    where
+        insert key e metric = M.insertWith mappend key (Sum 1, Sum (metric e))
+        ic f@Fish{}  = insert "fish"  f fishAge     m
+        ic s@Shark{} = insert "shark" s sharkEnergy m
+        ic e@Empty   = insert "empty" e (const 0)   m
 
 entityKey :: Entity -> T.Text
 entityKey Fish{}  = "fish"
@@ -163,12 +176,13 @@ entityKey Empty   = "empty"
 
 render :: Simulation -> IO Picture
 render (Simulation _ extent scaleBy (WaTor _ wator)) =
-    return . uncurry translate (slide `both` extent)
-           . pictures
-           . mapMaybe render'
-           . zip indexes'
-           . toList
-           $ fmap entityColor wator
+    uncurry translate (slide `both` extent)
+        .   pictures
+        .   mapMaybe render'
+        .   zip indexes'
+        .   V.toList
+        .   V.map entityColor
+        <$> V.mapM readTVarIO (v2dData wator)
     where
         scaleBy' = fromIntegral scaleBy
         indexes' = map floatPair . indexes $ v2dExtent wator
@@ -199,56 +213,56 @@ dimTo e | e >= 100  = id
         | otherwise = dim . dim . dim . dim . dim . dim . dim . dim . dim . dim
 
 step :: GenIO -> ViewPort -> Float -> Simulation -> IO Simulation
-step g _ _ s@(Simulation ps _ _ wator@(WaTor t (V2D extent w))) = do
+step g _ _ s@(Simulation ps _ _ wator@(WaTor t w)) = do
     maybe (return ()) (logCounts wator) $ countLog ps
-    v' <- V2D extent <$> V.thaw w
 
-    ((`shuffle` g) $ V.zip indexes' w)
-        >>= V.mapM (uncurry (stepCell g ps extent v'))
+    ((`shuffle` g) . V.zip indexes' $ v2dData w)
+        >>= V.mapM step'
         >>= print . V.foldl' mappend mempty
 
-    v'' <- V.freeze $ v2dData v'
-    return $ s { wator = WaTor { time = t + 1
-                               , world = V2D extent v''
-                               }
-               }
+    return $ s { wator = wator { time = t + 1 } }
     where
-        indexes' = V.fromList $ indexes extent
+        indexes' = V.fromList . indexes $ v2dExtent w
+        step' :: (Coord, EntityVar) -> IO StepSummary
+        step' (p, e) = do
+            [r1, r2] <- replicateM 2 (uniform g) :: IO [Double]
+            atomically $
+                stepCell ps w (r1, r2) p =<< readTVar e
 
-stepCell :: GenIO
-         -> Params
-         -> Coord
-         -> Vector2D MV.IOVector Entity
+stepCell :: Params
+         -> Vector2D V.Vector EntityVar
+         -> (Double, Double)
          -> Coord
          -> Entity
-         -> IO StepSummary
+         -> STM StepSummary
 
-stepCell g Params{..} extent v from f@Fish{} = do
-    current <- v !!? from
-    case current of
-        Just Fish{} -> do
-            ns <- neighborhoodEntities extent from v
-            moveEmpty g v from f' fishReproduce ns fishAge $ Fish 0
+stepCell Params{..} v@(V2D extent _) (r, _) from f@Fish{} = readCell v from >>=
+    \case
+        Fish{} ->
+            let ns = neighborhoodEntities extent from v
+            in  moveEmpty r v from f' fishReproduce ns fishAge $ Fish 0
         _ -> return mempty
     where
         f' = f { fishAge = fishAge f + 1 }
 
-stepCell g Params{..} extent v from s@Shark{}
-    | sharkEnergy s == 0 =  MV.write (v2dData v) (idx v from) Empty
+stepCell Params{..} v@(V2D extent _) (r1, r2) from s@Shark{}
+    | sharkEnergy s == 0 =  maybe (return ()) (`writeTVar` Empty) (v !? from)
                          >> return (mempty { sharksStarved = 1 })
     | otherwise          = do
-        ns    <- neighborhoodEntities extent from v
-        mfish <- randomElem (filter (isFish . snd) ns) g
+        let ns = neighborhoodEntities extent from v
+        mfish <-  (`randomElem` r1)
+              .   filter (isFish . snd)
+              <$> mapM (sequenceA . fmap readTVar) ns
         case mfish of
             Just (to, Fish{}) ->
                 move v from to s'' sharkAge sharkReproduce child
-            _ -> moveEmpty g v from s' sharkReproduce ns sharkAge child
+            _ -> moveEmpty r2 v from s' sharkReproduce ns sharkAge child
         where
             s'    = Shark (sharkAge s + 1) (sharkEnergy s - 1)
             s''   = s' { sharkEnergy = sharkEnergy s + fishBoost }
             child = Shark 0 initEnergy
 
-stepCell _ _ _ _ _      Empty = return mempty
+stepCell _ _ _ _      Empty = return mempty
 
 up, down, left, right :: Coord -> Coord -> Coord
 
@@ -267,12 +281,9 @@ right (w, _) (x, y) | x == w - 1 = (0, y)
 neighborhood :: Coord -> Coord -> [Coord]
 neighborhood extent center = map (\f -> f extent center) [up, right, down, left]
 
-neighborhoodEntities :: Coord -> Coord -> Vector2D MV.IOVector a
-                     -> IO [(Coord, a)]
+neighborhoodEntities :: Coord -> Coord -> Vector2D V.Vector a -> [(Coord, a)]
 neighborhoodEntities extent center v =
-    fmap (mapMaybe sequenceA)
-        . mapM (sequenceA . (id &&& (v !!?)))
-        $ neighborhood extent center
+    mapMaybe (sequenceA . (id &&& (v !?))) $ neighborhood extent center
 
 isFish, isShark, isEmpty :: Entity -> Bool
 
@@ -285,44 +296,42 @@ isShark _       = False
 isEmpty Empty   = True
 isEmpty _       = False
 
-move :: Vector2D MV.IOVector Entity
+move :: Vector2D V.Vector EntityVar
      -> Coord
      -> Coord
      -> Entity
      -> (Entity -> Chronon)
      -> Chronon
      -> Entity
-     -> IO StepSummary
-move v2@(V2D _ v) from to entity getAge reproduceAge child = do
+     -> STM StepSummary
+move v2 from to entity getAge reproduceAge child = do
     let child' = if (getAge entity `mod` reproduceAge) == 0
                      then child
                      else Empty
-        to'   = idx v2 to
-        from' = idx v2 from
-    was <- MV.read v to'
-    MV.write v to' entity
-    MV.write v from' child'
+    was <- readCell v2 to
+    writeCell v2 to entity
+    writeCell v2 from child
     return $ StepSum (if isFish child' && isFish entity then 1 else 0)
                      (if isFish was then 1 else 0)
                      (if isShark child' && isShark entity then 1 else 0)
                      0
 
-update :: Vector2D MV.IOVector Entity -> Coord -> Entity -> IO StepSummary
-update v2@(V2D _ v) coord entity =
-    MV.write v (idx v2 coord) entity >> return mempty
+update :: Vector2D V.Vector EntityVar -> Coord -> Entity -> STM StepSummary
+update v2 coord entity =
+    writeCell v2 coord entity >> return mempty
 
-moveEmpty :: GenIO
-          -> Vector2D MV.IOVector Entity
+moveEmpty :: Double
+          -> Vector2D V.Vector EntityVar
           -> Coord
           -> Entity
           -> Chronon
-          -> [(Coord, Entity)]
+          -> [(Coord, EntityVar)]
           -> (Entity -> Chronon)
           -> Entity
-          -> IO StepSummary
-moveEmpty g v from curr repro ns getAge child =
-    randomElem (filter (isEmpty . snd) ns) g
-    >>= \case
+          -> STM StepSummary
+moveEmpty r v from curr repro ns getAge child = do
+    empties <- filter (isEmpty . snd) <$> mapM (sequenceA . fmap readTVar) ns
+    case randomElem empties r of
         Just (to, Empty)   ->
             move v from to curr getAge repro child
         Just (_,  Fish{})  -> update v from curr
@@ -348,9 +357,15 @@ randomSwap g v j = do
     MV.write v j x
     return x
 
-randomElem :: [a] -> GenIO -> IO (Maybe a)
-randomElem [] _ = return Nothing
-randomElem xs g = Just . (xs !!) <$> uniformR (0, length xs - 1) g
+randomElem :: [a] -> Double -> Maybe a
+randomElem [] _ = Nothing
+randomElem xs r = fmap fst
+                . listToMaybe
+                . dropWhile ((< r) . snd)
+                . map (fmap (/ len))
+                $ zip xs ([1.0..] :: [Double])
+    where
+        len = fromIntegral $ length xs
 
 
 main :: IO ()
