@@ -238,14 +238,12 @@ stepCell g Params{..} extent v from f@Fish{} = do
 
 stepCell g Params{..} extent v from s@Shark{}
     | sharkEnergy s == 0 =  MV.write (v2dData v) (idx v from) Empty
-                         >> F.print "DIED: {}\n" (Only (Shown s))
                          >> return (mempty { sharksStarved = 1 })
     | otherwise          = do
         ns    <- neighborhoodEntities extent from v
         mfish <- randomElem (filter (isFish . snd) ns) g
         case mfish of
             Just (to, f@Fish{}) -> do
-                F.print "EATING: {} => {}\n" (Shown s'', Shown f)
                 move v from to s'' sharkAge sharkReproduce child
             _ -> moveEmpty g v from s' sharkReproduce ns sharkAge child
         where
@@ -307,16 +305,6 @@ move v2@(V2D _ v) from to entity getAge reproduceAge child = do
     was <- MV.read v to'
     MV.write v to' entity
     MV.write v from' child'
-    F.print "MOVE: {} {} => {} {} ({})\n"
-            (Shown entity, Shown from , Shown was, Shown to , Shown child')
-    {-
-     - case entity of
-     -     Shark{} -> F.print "MOVE: {} {} => {} {} ({})\n"
-     -                        ( Shown entity, Shown from
-     -                        , Shown was, Shown to
-     -                        , Shown child')
-     -     _ -> return ()
-     -}
     return $ StepSum (if isFish child' && isFish entity then 1 else 0)
                      (if isFish was then 1 else 0)
                      (if isShark child' && isShark entity then 1 else 0)
