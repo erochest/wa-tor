@@ -14,9 +14,6 @@ import qualified Data.HashMap.Strict                  as M
 import           Data.Maybe
 import           Data.Monoid
 import qualified Data.Text                            as T
-import           Data.Text.Format                     hiding (left, print,
-                                                       right)
-import qualified Data.Text.Format                     as F
 import qualified Data.Text.IO                         as TIO
 import qualified Data.Text.Lazy                       as TL
 import           Data.Text.Lazy.Builder
@@ -243,7 +240,7 @@ stepCell g Params{..} extent v from s@Shark{}
         ns    <- neighborhoodEntities extent from v
         mfish <- randomElem (filter (isFish . snd) ns) g
         case mfish of
-            Just (to, f@Fish{}) -> do
+            Just (to, Fish{}) ->
                 move v from to s'' sharkAge sharkReproduce child
             _ -> moveEmpty g v from s' sharkReproduce ns sharkAge child
         where
