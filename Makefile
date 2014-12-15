@@ -19,7 +19,8 @@ specs: build
 	./dist/build/wa-tor-specs/wa-tor-specs
 
 run:
-	${CABAL} run -- --initial-sharks 0.01 --initial-fish 0.05 --initial-shark-energy 10 --fish-energy 4 --reproduce-shark 30 --reproduce-fish 10 --count-log wa-tor-counts-${TS}.tsv > wa-tor-${TS}.log
+	${CABAL} run -- --initial-sharks 0.01 --initial-fish 0.05 --initial-shark-energy 10 --fish-energy 4 --reproduce-shark 30 --reproduce-fish 10 --count-log wa-tor-counts-${TS}.tsv &> wa-tor-${TS}.log
+	vim wa-tor-counts-${TS}.tsv wa-tor-${TS}.log
 
 
 # docs:

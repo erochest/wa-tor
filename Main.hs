@@ -2,6 +2,7 @@
 {-# LANGUAGE NamedFieldPuns    #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE TupleSections     #-}
 
 
 module Main where
@@ -11,10 +12,13 @@ import           Control.Arrow                        hiding (left, right)
 import           Control.Concurrent.STM
 import           Control.Monad                        hiding (mapM)
 import           Data.Bifunctor
+import           Data.Foldable                        hiding (mapM_)
 import qualified Data.HashMap.Strict                  as M
+import qualified Data.List                            as L
 import           Data.Maybe
 import           Data.Monoid
 import qualified Data.Text                            as T
+import qualified Data.Text.Format                     as F
 import qualified Data.Text.IO                         as TIO
 import qualified Data.Text.Lazy                       as TL
 import           Data.Text.Lazy.Builder
@@ -28,6 +32,13 @@ import           Graphics.Gloss.Interface.IO.Simulate
 import           Options.Applicative
 import           Prelude                              hiding (mapM)
 import           System.Random.MWC
+
+import Debug.Trace
+import qualified Data.Text.Format.Params as FP
+
+
+tracef :: FP.Params ps => F.Format -> ps -> a -> a
+tracef format ps a = trace (T.unpack . TL.toStrict $ F.format format ps) a
 
 
 type Chronon   = Int
@@ -137,28 +148,34 @@ randomEntity g Params{..} = randomEntity' <$> uniform g
                         | x <= (initialFish + initialSharks) = Shark 0 initEnergy
                         | otherwise                          = Empty
 
-logCounts :: WaTor -> FilePath -> IO ()
-logCounts w fp =   TIO.appendFile fp
-               .   TL.toStrict
-               .   toLazyText
-               .   cline (time w)
-               =<< V.foldM' indexCounts M.empty
-               (   v2dData
-               $   world w
-               )
+logCounts :: WaTor -> FilePath -> StepSummary -> IO ()
+logCounts w fp StepSum{..} =
+        V.foldM' indexCounts M.empty (v2dData $ world w)
+    >>= TIO.appendFile fp . TL.toStrict . toLazyText . cline (time w)
     where
 
         per :: Int -> Int -> Double
         per n d = fromIntegral n / fromIntegral d
 
         cline :: Int -> M.HashMap T.Text (Sum Int, Sum Int) -> Builder
-        cline t m = let (Sum fc, Sum fa) = M.lookupDefault (Sum 0, Sum 1) "fish"  m
-                        (Sum sc, Sum se) = M.lookupDefault (Sum 0, Sum 1) "shark" m
-                        (Sum e, _)       = M.lookupDefault (Sum 0, Sum 1) "empty" m
-                    in  decimal t <> "\t"
-                    <> decimal fc <> "\t" <> realFloat (fa `per` fc) <> "\t"
-                    <> decimal sc <> "\t" <> realFloat (se `per` sc) <> "\t"
-                    <> decimal e  <> "\n"
+        cline t m =
+            let (Sum fc, Sum fa) = M.lookupDefault (Sum 0, Sum 1) "fish"  m
+                (Sum sc, Sum se) = M.lookupDefault (Sum 0, Sum 1) "shark" m
+                (Sum e, _)       = M.lookupDefault (Sum 0, Sum 1) "empty" m
+            in  (<> "\n")
+                    . mconcat
+                    $ L.intersperse "\t"
+                    [ decimal t
+                    , decimal fc, realFloat (fa `per` fc)
+                    , decimal sc, realFloat (se `per` sc)
+                    , decimal e
+                    , decimal fishBorn, decimal fishEaten
+                    , decimal sharksBorn, decimal sharksStarved
+                    ]
+
+headerLine :: T.Text
+headerLine = "time\tfish\tmean fish age\tsharks\tmean shark energy\t\
+              \empties\tfish born\tfish eaten\tsharks born\tsharks starved\n"
 
 indexCounts :: M.HashMap T.Text (Sum Int, Sum Int) -> EntityVar
             -> IO (M.HashMap T.Text (Sum Int, Sum Int))
@@ -182,7 +199,7 @@ render (Simulation _ extent scaleBy (WaTor _ wator)) =
         .   zip indexes'
         .   V.toList
         .   V.map entityColor
-        <$> V.mapM readTVarIO (v2dData wator)
+        <$> atomically (V.mapM readTVar $ v2dData wator)
     where
         scaleBy' = fromIntegral scaleBy
         indexes' = map floatPair . indexes $ v2dExtent wator
@@ -195,8 +212,8 @@ render (Simulation _ extent scaleBy (WaTor _ wator)) =
                  $ circle (scaleBy' / 2.0)
 
 entityColor :: Entity -> Maybe Color
-entityColor Fish{}  = Just . dim $ blue
-entityColor Shark{} = Just . dim $ red
+entityColor Fish{}  = Just blue
+entityColor Shark{} = Just red
 entityColor Empty   = Nothing
 
 dimTo :: Int -> Color -> Color
@@ -214,11 +231,10 @@ dimTo e | e >= 100  = id
 
 step :: GenIO -> ViewPort -> Float -> Simulation -> IO Simulation
 step g _ _ s@(Simulation ps _ _ wator@(WaTor t w)) = do
-    maybe (return ()) (logCounts wator) $ countLog ps
-
     ((`shuffle` g) . V.zip indexes' $ v2dData w)
         >>= V.mapM step'
-        >>= print . V.foldl' mappend mempty
+        >>= maybe (const $ return ()) (logCounts wator) (countLog ps)
+        .   V.foldl' mappend mempty
 
     return $ s { wator = wator { time = t + 1 } }
     where
@@ -247,6 +263,7 @@ stepCell Params{..} v@(V2D extent _) (r, _) from f@Fish{} = readCell v from >>=
 
 stepCell Params{..} v@(V2D extent _) (r1, r2) from s@Shark{}
     | sharkEnergy s == 0 =  maybe (return ()) (`writeTVar` Empty) (v !? from)
+                         >> tracef "DIED {} {}" (F.Shown s, F.Shown from) (return ())
                          >> return (mempty { sharksStarved = 1 })
     | otherwise          = do
         let ns = neighborhoodEntities extent from v
@@ -254,7 +271,8 @@ stepCell Params{..} v@(V2D extent _) (r1, r2) from s@Shark{}
               .   filter (isFish . snd)
               <$> mapM (sequenceA . fmap readTVar) ns
         case mfish of
-            Just (to, Fish{}) ->
+            Just (to, f@Fish{}) ->
+                tracef "EATEN {} {} => {} {}" (F.Shown s, F.Shown from, F.Shown f, F.Shown to) (return ()) >>
                 move v from to s'' sharkAge sharkReproduce child
             _ -> moveEmpty r2 v from s' sharkReproduce ns sharkAge child
         where
@@ -309,6 +327,9 @@ move v2 from to entity getAge reproduceAge child = do
                      then child
                      else Empty
     was <- readCell v2 to
+    tracef "MV {} {} => {} {}"
+           (F.Shown entity, F.Shown from, F.Shown child', F.Shown to)
+           (return ())
     writeCell v2 to entity
     writeCell v2 from child
     return $ StepSum (if isFish child' && isFish entity then 1 else 0)
@@ -374,6 +395,7 @@ main = do
     let w       = width ps
         h       = height ps
         scaleBy = scaling ps
+    maybe (return ()) (`TIO.writeFile` headerLine) $ countLog ps
     withSystemRandom $ asGenIO $ \g -> do
         wtr <- randomWaTor g ps (w, h)
         simulateIO (InWindow "Wa-Tor" (w * scaleBy, h * scaleBy) (0, 0))
