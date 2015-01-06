@@ -134,22 +134,37 @@ randomEntity g Params{..} = randomEntity' <$> uniform g
                         | x <= (initialFish + initialSharks) = Shark 0 initEnergy
                         | otherwise                          = Empty
 
-logCounts :: WaTor -> FilePath -> IO ()
-logCounts w fp = TIO.appendFile fp
-               . TL.toStrict
-               . toLazyText
-               . cline (time w)
-               . V.foldl' indexCounts M.empty
-               . v2dData
-               $ world w
+type Counts = ((Int, Int), (Int, Int), Int)
+
+getCounts :: WaTor -> Counts
+getCounts = rotate
+          . V.foldl' indexCounts M.empty
+          . v2dData
+          . world
     where
-        cline t m = let (Sum fc, Sum fa) = M.lookupDefault (Sum 0, Sum 1) "fish"  m
-                        (Sum sc, Sum se) = M.lookupDefault (Sum 0, Sum 1) "shark" m
-                        (Sum e, _)       = M.lookupDefault (Sum 0, Sum 1) "empty" m
-                    in  decimal t <> "\t"
-                    <> decimal fc <> "\t" <> realFloat (fromIntegral fa / fromIntegral fc) <> "\t"
-                    <> decimal sc <> "\t" <> realFloat (fromIntegral se / fromIntegral sc) <> "\t"
-                    <> decimal e  <> "\n"
+        init :: (Sum Int, Sum Int)
+        init = (Sum 0, Sum 1)
+        deSum = both getSum
+
+        rotate m = ( deSum $ M.lookupDefault init "fish" m
+                   , deSum $ M.lookupDefault init "shark" m
+                   , getSum . fst $ M.lookupDefault init "empty" m
+                   )
+
+logCounts :: WaTor -> Counts -> FilePath -> IO ()
+logCounts w ((fc, fa), (sc, se), e) fp = TIO.appendFile fp
+       . TL.toStrict
+       . toLazyText
+       $ cline (time w)
+    where
+        init :: (Sum Int, Sum Int)
+        init = (Sum 0, Sum 1)
+        getD :: Int -> Double
+        getD = fromIntegral
+        cline t =  decimal t <> "\t"
+                <> decimal fc <> "\t" <> realFloat (getD fa / getD fc) <> "\t"
+                <> decimal sc <> "\t" <> realFloat (getD se / getD sc) <> "\t"
+                <> decimal e  <> "\n"
 
 indexCounts :: M.HashMap T.Text (Sum Int, Sum Int) -> Entity -> M.HashMap T.Text (Sum Int, Sum Int)
 indexCounts m Fish{fishAge}      = M.insertWith mappend "fish"  (Sum 1, Sum fishAge)     m
@@ -198,9 +213,14 @@ dimTo e | e >= 100  = id
         | e >=  10  = dim . dim . dim . dim . dim . dim . dim . dim . dim
         | otherwise = dim . dim . dim . dim . dim . dim . dim . dim . dim . dim
 
-step :: GenIO -> ViewPort -> Float -> Simulation -> IO Simulation
-step g _ _ s@(Simulation ps _ _ wator@(WaTor t (V2D extent w))) = do
-    maybe (return ()) (logCounts wator) $ countLog ps
+step :: GenIO -> Params -> ViewPort -> Float -> Simulation -> IO Simulation
+step g p _ _ s@(Simulation ps _ _ wator@(WaTor t (V2D extent w))) = do
+    let counts@((fc, _), (sc, _), _) = getCounts wator
+    maybe (return ()) (logCounts wator counts) $ countLog ps
+    w' <- if fc == 0 && sc == 0
+              then mapM (const $ randomEntity g p) w
+              else return w
+
     v' <- V2D extent <$> V.thaw w
 
     ((`shuffle` g) $ V.zip indexes' w)
@@ -366,7 +386,7 @@ main = do
                    7
                    (Simulation ps (fromIntegral w, fromIntegral h) scaleBy wtr)
                    render
-                   (step g)
+                   (step g ps)
 
 opts' :: Parser Params
 opts' =   Params
