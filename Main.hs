@@ -196,8 +196,8 @@ render (Simulation _ extent scaleBy (WaTor _ wator)) =
                  $ circle (scaleBy' / 2.0)
 
 entityColor :: Entity -> Maybe Color
-entityColor Fish{}  = Just . dim $ blue
-entityColor Shark{} = Just . dim $ red
+entityColor Fish{}  = Just $ mixColors 0.3 0.7 blue green
+entityColor Shark{} = Just $ bright red
 entityColor Empty   = Nothing
 
 dimTo :: Int -> Color -> Color
@@ -382,7 +382,7 @@ main = do
     withSystemRandom $ asGenIO $ \g -> do
         wtr <- randomWaTor g ps (w, h)
         simulateIO (InWindow "Wa-Tor" (w * scaleBy, h * scaleBy) (0, 0))
-                   black
+                   (dark $ dark blue)
                    7
                    (Simulation ps (fromIntegral w, fromIntegral h) scaleBy wtr)
                    render
