@@ -16,29 +16,54 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  -- exposed-modules:     
+  exposed-modules:     WaTor.Graphics
+                     , WaTor.Metrics
+                     , WaTor.Movement
+                     , WaTor.Random
+                     , WaTor.Simulation
+                     , WaTor.Types
+                     , WaTor.Utils
+                     , WaTor.Vector
   -- other-modules:       
   -- other-extensions:    
   build-depends:       base >=4.7 && <4.8
-  -- hs-source-dirs:      
+                     , bifunctors
+                     , gloss
+                     , mwc-random
+                     , text
+                     , unordered-containers
+                     , vector
+  hs-source-dirs:      src
   default-language:    Haskell2010
 
 executable wa-tor
   main-is:             Main.hs
-  -- other-modules:       
+  other-modules:       Opts
   -- other-extensions:    
   build-depends:       base >=4.7 && <4.8
                      , wa-tor
-                     , text
-                     , text-format
                      , optparse-applicative
-                     , vector
-                     , unordered-containers
                      , gloss
-                     , lens
                      , mwc-random
-                     , bifunctors
   -- hs-source-dirs:      .
+  default-language:    Haskell2010
+
+test-suite wa-tor-specs
+  type:                exitcode-stdio-1.0
+  ghc-options:         -threaded -rtsopts
+  hs-source-dirs:      specs
+  main-is:             Specs.hs
+  build-depends:         base       == 4.7.*
+                       , QuickCheck
+                       , smallcheck
+                       , hspec
+                       , hspec-expectations
+                       , wa-tor
+                       , vector
+                       , mwc-random
+                       -- , tasty
+                       -- , tasty-quickcheck
+                       -- , tasty-smallcheck
   default-language:    Haskell2010
 
 source-repository this
