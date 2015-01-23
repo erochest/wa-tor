@@ -12,7 +12,7 @@ import           Test.Hspec.Expectations.Contrib
 
 
 spec :: Spec
-spec = describe "WaTor.Random" $ do
+spec = do
     describe "shuffle" $
         it "should not return items in the same order." $ randomly $ \g -> do
             let v = V.fromList [1..100]
