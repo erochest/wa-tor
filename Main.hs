@@ -16,6 +16,9 @@ import           WaTor.Simulation
 import           WaTor.Types
 
 
+-- TODO: Add the option to output nothing.
+
+-- TODO: Add the option to view a heat-map version of the output.
 
 main :: IO ()
 main = do
