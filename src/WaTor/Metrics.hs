@@ -57,4 +57,3 @@ indexCounts :: M.HashMap T.Text (Sum Int, Sum Int) -> Entity -> M.HashMap T.Text
 indexCounts m Fish{fishAge}      = M.insertWith mappend "fish"  (Sum 1, Sum fishAge)     m
 indexCounts m Shark{sharkEnergy} = M.insertWith mappend "shark" (Sum 1, Sum sharkEnergy) m
 indexCounts m Empty              = M.insertWith mappend "empty" (Sum 1, Sum 0) m
-

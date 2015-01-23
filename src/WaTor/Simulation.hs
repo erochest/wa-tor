@@ -32,7 +32,7 @@ step g p _ _ s@(Simulation ps _ _ wator@(WaTor t (V2D extent w))) = do
               then mapM (const $ randomEntity g p) w
               else return w
 
-    v' <- V2D extent <$> V.thaw w
+    v' <- V2D extent <$> V.thaw w'
 
     ((`shuffle` g) $ V.zip indexes' w)
         >>= V.mapM (uncurry (stepCell g ps extent v'))
