@@ -49,6 +49,7 @@ data Params
         , scaling        :: !Int
         , speed          :: !Int
         , countLog       :: !(Maybe FilePath)
+        , quiet          :: !Bool
         }
 
 data StepSummary

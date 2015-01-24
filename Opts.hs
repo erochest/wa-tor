@@ -61,6 +61,8 @@ opts' =   Params
       <*> optional (strOption
                        (  long "count-log" <> metavar "FILENAME"
                        <> help "A file name for the counts. This will be TSV."))
+      <*> switch (  short 'q' <> long "quiet"
+                 <> help "Turn off all output.")
 
 opts :: ParserInfo Params
 opts = info (helper <*> opts')

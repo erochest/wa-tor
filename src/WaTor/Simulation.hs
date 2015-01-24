@@ -8,6 +8,7 @@ module WaTor.Simulation
 
 
 import           Control.Applicative
+import           Control.Monad                        hiding (mapM)
 import           Data.Monoid
 import           Data.Traversable
 import qualified Data.Vector                          as V
@@ -36,7 +37,8 @@ step g p _ _ s@(Simulation ps _ _ wator@(WaTor t (V2D extent w))) = do
 
     ((`shuffle` g) $ V.zip indexes' w)
         >>= V.mapM (uncurry (stepCell g ps extent v'))
-        >>= print . V.foldl' mappend mempty
+        >>= unless (quiet p) .
+                print . V.foldl' mappend mempty
 
     v'' <- V.freeze $ v2dData v'
     return $ s { wator = WaTor { time = t + 1

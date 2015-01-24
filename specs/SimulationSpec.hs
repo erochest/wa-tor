@@ -21,7 +21,7 @@ spec =
     describe "step" $
         it "should restart if everyone is extinct." $ randomly $ \g -> do
             let e = (100, 60)
-                p = Params 0.01 0.05 30 15 30 5 100 60 1 7 Nothing
+                p = Params 0.01 0.05 30 15 30 5 100 60 1 7 Nothing True
                 w = WaTor 0 . V2D e . V.fromList $ L.replicate (100 * 60) Empty
                 s = Simulation p (floatPair e) 1 w
             s' <- step g p undefined undefined s

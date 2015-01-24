@@ -19,7 +19,7 @@ specs: build
 	./dist/build/wa-tor-specs/wa-tor-specs
 
 run:
-	${CABAL} run -- --height 185 --width 300 --scaling 4 --initial-sharks 0.01 --initial-fish 0.05 --initial-shark-energy 10 --fish-energy 4 --reproduce-shark 30 --reproduce-fish 10 --count-log wa-tor-counts-${TS}.tsv > wa-tor-${TS}.log
+	${CABAL} run -- --height 185 --width 300 --scaling 4 --initial-sharks 0.025 --initial-fish 0.05 --initial-shark-energy 8 --fish-energy 4 --reproduce-shark 30 --reproduce-fish 10 --quiet
 
 
 # docs:
