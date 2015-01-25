@@ -41,5 +41,3 @@ neighborhoodEntities extent center v =
     fmap (mapMaybe sequenceA)
         . mapM (sequenceA . (id &&& (v !!?)))
         $ neighborhood extent center
-
-

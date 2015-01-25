@@ -66,20 +66,20 @@ stepCell g Params{..} extent v from f@Fish{} = do
     where
         f' = f { fishAge = fishAge f + 1 }
 
-stepCell g Params{..} extent v from s@Shark{}
-    | sharkEnergy s == 0 =  MV.write (v2dData v) (idx v from) Empty
-                         >> return (mempty { sharksStarved = 1 })
-    | otherwise          = do
-        ns    <- neighborhoodEntities extent from v
-        mfish <- randomElem (filter (isFish . snd) ns) g
-        case mfish of
-            Just (to, Fish{}) ->
-                move v from to s'' sharkAge sharkReproduce child
-            _ -> moveEmpty g v from s' sharkReproduce ns sharkAge child
-        where
-            s'    = Shark (sharkAge s + 1) (sharkEnergy s - 1)
-            s''   = s' { sharkEnergy = sharkEnergy s + fishBoost }
-            child = Shark 0 initEnergy
+stepCell g Params{..} extent v from (Shark _ 0) = do
+    MV.write (v2dData v) (idx v from) Empty
+    return (mempty { sharksStarved = 1 })
+stepCell g Params{..} extent v from s@Shark{} = do
+    ns    <- neighborhoodEntities extent from v
+    mfish <- randomElem (filter (isFish . snd) ns) g
+    case mfish of
+        Just (to, Fish{}) ->
+            move v from to s'' sharkAge sharkReproduce child
+        _ -> moveEmpty g v from s' sharkReproduce ns sharkAge child
+    where
+        s'    = Shark (sharkAge s + 1) (sharkEnergy s - 1)
+        s''   = s' { sharkEnergy = sharkEnergy s + fishBoost }
+        child = Shark 0 initEnergy
 
 stepCell _ _ _ _ _      Empty = return mempty
 
@@ -126,4 +126,3 @@ moveEmpty g v from curr repro ns getAge child =
         Just (_,  Fish{})  -> update v from curr
         Just (_,  Shark{}) -> update v from curr
         Nothing            -> update v from curr
-
