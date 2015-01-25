@@ -39,6 +39,7 @@ library
 executable wa-tor
   main-is:             Main.hs
   other-modules:       Opts
+  ghc-options:         -threaded -rtsopts
   -- other-extensions:    
   build-depends:       base >=4.7 && <4.8
                      , wa-tor
