@@ -26,7 +26,7 @@ library
                      , WaTor.Vector
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.7 && <4.8
+  build-depends:       base >=4.7 && <5
                      , bifunctors
                      , gloss
                      , mwc-random
@@ -42,7 +42,7 @@ executable wa-tor
   other-modules:       Opts
   ghc-options:         -threaded -rtsopts
   -- other-extensions:    
-  build-depends:       base >=4.7 && <4.8
+  build-depends:       base >=4.7 && <5
                      , wa-tor
                      , optparse-applicative
                      , gloss
@@ -55,7 +55,7 @@ test-suite wa-tor-specs
   ghc-options:         -threaded -rtsopts
   hs-source-dirs:      specs
   main-is:             Specs.hs
-  build-depends:         base       == 4.7.*
+  build-depends:         base
                        , QuickCheck
                        , smallcheck
                        , hspec
